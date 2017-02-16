@@ -1,0 +1,86 @@
+---
+- hosts: nodej
+
+
+  vars:
+    - homeDir: /home/chiuser/nodej
+    - appDir: app
+    - repo: nodej_hello
+    - account: YAD87
+    - privateKey: /home/user/.ssh/id_rsa
+    - ansible_become_pass: #######
+  
+
+  tasks:
+
+    - name: update sistem
+      sudo: yes
+      apt: update_cache=yes
+
+    - name: Installs pacakges
+      sudo: yes
+      apt: pkg={{ item.name }} state=present
+      with_items:
+         - name: build-essential
+         - name: openssl
+         - name: npm
+         - name: nodejs-legacy
+         - name: git
+         - name: mcrypt
+         - name: nginx
+         - name: curl
+
+
+    - name: install pm2
+      sudo: yes
+      npm: name=pm2 global=yes production=yes
+  
+    - name: install express
+      sudo: yes
+      npm: name=express global=yes production=yes
+    
+    - name: Create app directory
+      sudo: yes
+      file: path={{homeDir}}/{{appDir}} state=directory
+
+    - name: Copy Private Key
+      sudo: yes
+      copy: src={{privateKey}} dest={{homeDir}} mode=0600
+
+    - name: Git Clone Repo
+      sudo: yes
+      git: repo=git@github.com:{{account}}/{{repo}}.git dest={{homeDir}}/{{appDir}} update=yes force=yes accept_hostkey=yes key_file={{homeDir}}/id_rsa
+      register: git_finished
+#      when: git_finished.changed
+
+    - name: Stop app
+      sudo: yes
+      sudo_user: chiuser
+      command: pm2 stop app chdir={homeDir}}/{{appDir}}/backend
+      ignore_errors: yes
+
+    - name: Start app
+      sudo: yes
+      sudo_user: chiuser
+      command: pm2 start index.js --name app chdir={{homeDir}}/{{appDir}}/backend
+      ignore_errors: yes
+#      when: npm_finished.changed 
+
+    - name: Deactivate the default nginx site
+      sudo: yes
+      file: path=/etc/nginx/sites-enabled/default
+            state=absent
+
+    - name: New conf
+      sudo: yes
+      shell: cd /etc/nginx/sites-available/ && touch nodejs && echo 'server { listen 80 default_server; root /home/chiuser/nodej/app; index index.js;  location / { proxy_pass http://localhost:3000; root /home/chiuser/nodej/app;  proxy_set_header Host $host; } }' >> nodejs
+
+    - name: Activate conf
+      sudo: yes
+      file: src=/etc/nginx/sites-available/nodejs
+            dest=/etc/nginx/sites-enabled/nodejs
+            state=link
+  
+    - name: Resatrt nginx
+      sudo: yes
+      command: service nginx restart 
